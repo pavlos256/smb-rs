@@ -7,7 +7,7 @@ use super::ResourceHandle;
 use crate::msg_handler::{OutgoingMessage, ReceiveOptions};
 use maybe_async::*;
 use smb_msg::{IoctlBuffer, PipeTransceiveRequest, ReadRequest, WriteRequest};
-use smb_rpc::{SmbRpcError, interface::*, ndr64::NDR64_SYNTAX_ID, pdu::*};
+use smb_rpc::{SmbRpcError, interface::*, ndr64::{NDR20_SYNTAX_ID, NDR64_SYNTAX_ID}, pdu::*};
 pub struct Pipe {
     handle: ResourceHandle,
 }
@@ -23,6 +23,16 @@ impl Pipe {
         I: RpcInterface<PipeRpcConnection>,
     {
         PipeRpcConnection::bind::<I>(self).await
+    }
+
+    /// Bind to an RPC interface using NDR 2.0 (32-bit) transfer syntax.
+    ///
+    /// Some RPC interfaces (e.g. LSAR on Samba) do not support NDR64.
+    pub async fn bind_ndr20<I>(self) -> crate::Result<I>
+    where
+        I: RpcInterface<PipeRpcConnection>,
+    {
+        PipeRpcConnection::bind_ndr20::<I>(self).await
     }
 }
 
@@ -74,6 +84,65 @@ impl PipeRpcConnection {
         };
 
         let context_id = Self::check_bind_results(bind_ack, &tranfer_syntaxes)?;
+
+        Ok(I::new(PipeRpcConnection {
+            pipe,
+            next_call_id: START_CALL_ID + 1,
+            context_id,
+            server_max_xmit_frag: bind_ack.max_xmit_frag,
+            _server_max_recv_frag: bind_ack.max_recv_frag,
+        }))
+    }
+
+    /// Bind using NDR 2.0 transfer syntax only.
+    pub async fn bind_ndr20<I>(mut pipe: Pipe) -> crate::Result<I>
+    where
+        I: RpcInterface<PipeRpcConnection>,
+    {
+        let tranfer_syntaxes: [DceRpcSyntaxId; 1] = [NDR20_SYNTAX_ID];
+        let context_elements = Self::make_bind_contexts(I::SYNTAX_ID, &tranfer_syntaxes);
+
+        const START_CALL_ID: u32 = 2;
+        const DEFAULT_FRAG_LIMIT: u16 = 4280;
+        const NO_ASSOC_GROUP_ID: u32 = 0;
+        let bind_ack = Self::rpc_rw(
+            &mut pipe,
+            START_CALL_ID,
+            DcRpcCoPktBind {
+                max_xmit_frag: DEFAULT_FRAG_LIMIT,
+                max_recv_frag: DEFAULT_FRAG_LIMIT,
+                assoc_group_id: NO_ASSOC_GROUP_ID,
+                context_elements,
+            }
+            .into(),
+        )
+        .await?;
+
+        let bind_ack = match bind_ack.content() {
+            DcRpcCoPktResponseContent::BindAck(bind_ack) => {
+                log::debug!("Bounded to pipe (NDR20) with port spec {}", bind_ack.port_spec);
+                bind_ack
+            }
+            _ => {
+                return Err(crate::Error::InvalidMessage(format!(
+                    "Expected BindAck, got: {bind_ack:?}",
+                )));
+            }
+        };
+
+        // For NDR20 bind with a single syntax, check that it was accepted.
+        if bind_ack.results.is_empty() {
+            return Err(crate::Error::InvalidMessage(
+                "BindAck returned no results".to_string(),
+            ));
+        }
+        let ack = &bind_ack.results[0];
+        if ack.result != DceRpcCoPktBindAckDefResult::Acceptance {
+            return Err(crate::Error::InvalidMessage(format!(
+                "BindAck NDR20 context was not accepted: {ack:?}"
+            )));
+        }
+        let context_id = 0u16;
 
         Ok(I::new(PipeRpcConnection {
             pipe,

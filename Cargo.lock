@@ -2622,19 +2622,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "smb-spike"
-version = "0.1.0"
-dependencies = [
- "env_logger",
- "futures-util",
- "log",
- "smb",
- "smb-dtyp",
- "smb-fscc",
- "tokio",
-]
-
-[[package]]
 name = "smb-tests"
 version = "0.11.2"
 dependencies = [

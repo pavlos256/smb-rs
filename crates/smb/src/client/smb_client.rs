@@ -2,7 +2,7 @@ use crate::ConnectionConfig;
 use crate::{Connection, Error, FileCreateArgs, Pipe, Resource, Session, Tree, sync_helpers::*};
 use maybe_async::maybe_async;
 use smb_msg::{NetworkInterfaceInfo, ReferralEntry, ReferralEntryValue, Status};
-use smb_rpc::interface::{ShareInfo1, SrvSvc};
+use smb_rpc::interface::{Lsar, ResolvedName, ShareInfo1, SrvSvc};
 use smb_transport::TransportConfig;
 use smb_transport::utils::TransportUtils;
 use sspi::{AuthIdentity, Secret};
@@ -158,6 +158,22 @@ impl Client {
         let shares = srvsvc_pipe.netr_share_enum(server).await?;
 
         Ok(shares)
+    }
+
+    /// Resolves SIDs to account names via the LSAR protocol.
+    ///
+    /// Opens the `\lsarpc` named pipe (NDR 2.0), queries the server for
+    /// each SID's account name and type, then closes the pipe.
+    pub async fn lookup_sids(
+        &self,
+        server: &str,
+        sids: &[smb_dtyp::SID],
+    ) -> crate::Result<Vec<ResolvedName>> {
+        let pipe = self.open_pipe(server, "lsarpc").await?;
+        let mut lsar: Lsar<_> = pipe.bind_ndr20().await?;
+        let result = lsar.lookup_sids(server, sids).await?;
+        let _ = lsar.close().await;
+        Ok(result)
     }
 
     /// Connects to a share on the specified server.
