@@ -227,6 +227,10 @@ impl QueryInfoResponse {
     pub fn parse(&self, info_type: InfoType) -> Result<QueryInfoData, binrw::Error> {
         self.data.parse(info_type)
     }
+
+    pub fn data(&self) -> &[u8] {
+        self.data.data()
+    }
 }
 
 /// A helper structure containing raw response data that can be parsed into specific information types.
@@ -243,6 +247,10 @@ impl QueryInfoResponseData {
     pub fn parse(&self, info_type: InfoType) -> Result<QueryInfoData, binrw::Error> {
         let mut cursor = Cursor::new(&self.data);
         QueryInfoData::read_args(&mut cursor, (info_type,))
+    }
+
+    pub fn data(&self) -> &[u8] {
+        &self.data
     }
 }
 

@@ -365,7 +365,19 @@ impl ResourceHandle {
                 let status = response.message.header.status.try_into().unwrap();
                 match status {
                     Status::Success => {
-                        Ok(response.message.content.to_queryinfo()?.parse(info_type)?)
+                        let raw = response.message.content.to_queryinfo()?;
+                        match raw.parse(info_type) {
+                            Ok(v) => Ok(v),
+                            Err(e) => {
+                                log::error!(
+                                    "query_info parse failed: type={:?} data_type={} bytes={:02x?}",
+                                    info_type,
+                                    data_type,
+                                    raw.data()
+                                );
+                                Err(e.into())
+                            }
+                        }
                     }
                     Status::BufferOverflow | Status::InfoLengthMismatch => {
                         let required_size = response
