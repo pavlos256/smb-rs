@@ -36,11 +36,16 @@ pub struct SecurityDescriptor {
     #[br(temp)]
     offset_dacl: PosMarker<u32>,
 
+    // MS-DTYP 2.4.6: each section's location is given by its OffsetXxx field
+    // (relative to the start of the SD). Sections may appear in any order, so
+    // seek to the offset before reading instead of relying on field order.
+    #[br(seek_before = _sd_begin.seek_from_if(offset_owner.value as u64, offset_owner.value != 0))]
     #[br(if(offset_owner.value != 0))]
     #[bw(if(owner_sid.is_some()))]
     #[bw(write_with = PosMarker::write_roff_b, args(&offset_owner, &_sd_begin))]
     pub owner_sid: Option<SID>,
 
+    #[br(seek_before = _sd_begin.seek_from_if(offset_group.value as u64, offset_group.value != 0))]
     #[br(if(offset_group.value != 0))]
     #[bw(if(group_sid.is_some()))]
     #[bw(write_with = PosMarker::write_roff_b, args(&offset_group, &_sd_begin))]
@@ -50,6 +55,7 @@ pub struct SecurityDescriptor {
     #[br(assert((offset_sacl.value != 0) == (control.sacl_present())))]
     #[bw(if(sacl.is_some()))]
     #[bw(write_with = PosMarker::write_roff_b, args(&offset_sacl, &_sd_begin))]
+    #[br(seek_before = _sd_begin.seek_from_if(offset_sacl.value as u64, offset_sacl.value != 0))]
     #[br(if(offset_sacl.value != 0))]
     pub sacl: Option<ACL>,
 
@@ -57,6 +63,7 @@ pub struct SecurityDescriptor {
     #[br(assert((offset_dacl.value != 0) == control.dacl_present()))]
     #[bw(if(dacl.is_some()))]
     #[bw(write_with = PosMarker::write_roff_b, args(&offset_dacl, &_sd_begin))]
+    #[br(seek_before = _sd_begin.seek_from_if(offset_dacl.value as u64, offset_dacl.value != 0))]
     #[br(if(offset_dacl.value != 0))]
     pub dacl: Option<ACL>,
 }
